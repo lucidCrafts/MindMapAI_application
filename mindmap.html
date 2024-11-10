@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mind Map</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f1f1f1;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #mindmap-container {
+            width: 100%;
+            height: 100%;
+            background-color: #fff;
+            border: 2px solid #ccc;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            margin: 0; /* Remove any margin around the container */
+            padding: 0; /* Remove any internal padding */
+        }
+        .node rect {
+            fill: #6c5ce7;  /* Soft purple color */
+            stroke: #fff;
+            stroke-width: 2px;
+            rx: 10px; /* Adjusted corner radius */
+            ry: 10px;
+            width: auto;
+            height: auto;
+        }
+        .node text {
+            font-size: 18px; /* Font size */
+            font-weight: bold;
+            fill: #000; /* Black font color */
+            text-anchor: middle;
+            dominant-baseline: middle; /* Vertically center text */
+            cursor: pointer; /* Make text selectable */
+        }
+        .link {
+            fill: none;
+            stroke: #aaa;  /* Light grey links */
+            stroke-width: 2px;
+            opacity: 0.6;
+        }
+        .link:hover {
+            stroke: #6c5ce7;
+            stroke-width: 3px;
+            opacity: 1;
+        }
+        .node:hover rect {
+            fill: #a29bfe;  /* Lighter shade of purple */
+        }
+        .node text:hover {
+            fill: #2d3436;  /* Dark color for text on hover */
+        }
+
+        /* Modal (pop-up) styles */
+        #modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+        }
+        #modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 50%;
+            max-width: 600px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        #close-btn {
+            background-color: #6c5ce7;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #close-btn:hover {
+            background-color: #a29bfe;
+        }
+    </style>
+</head>
+<body>
+    <div id="mindmap-container"></div>
+
+    <!-- Modal for explanation -->
+    <div id="modal">
+        <div id="modal-content">
+            <h2>Explanation</h2>
+            <p id="modal-text">Loading...</p>
+            <button id="close-btn">Close</button>
+        </div>
+    </div>
+
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script>
+        // Fetch mind map data from Flask API
+        fetch('http://localhost:5000/api/mindmap')
+            .then(response => response.json())
+            .then(data => {
+                const width = window.innerWidth; // Get the full width of the window
+                const height = window.innerHeight; // Get the full height of the window
+
+                // Set up the tree layout
+                const tree = d3.tree().size([height, width]) // Use the full window for tree layout
+                    .separation((a, b) => a.parent === b.parent ? 2 : 3);  // More separation between nodes
+
+                // Convert the data into a hierarchy using d3.hierarchy
+                const root = d3.hierarchy(data.root);
+                tree(root); // Compute the tree layout
+
+                const svg = d3.select('#mindmap-container')
+                    .append('svg')
+                    .attr('width', width)
+                    .attr('height', height)
+                    .append('g')
+                    .attr('transform', 'translate(50, 0)'); // Adjust for minimal margins
+
+                // Links between nodes (lines)
+                svg.selectAll('.link')
+                    .data(root.links())
+                    .enter()
+                    .append('path')
+                    .attr('class', 'link')
+                    .attr('d', d3.linkHorizontal().x(d => d.y).y(d => d.x));
+
+                // Nodes (rectangles and text)
+                const node = svg.selectAll('.node')
+                    .data(root.descendants())
+                    .enter()
+                    .append('g')
+                    .attr('class', 'node')
+                    .attr('transform', d => `translate(${d.y}, ${d.x})`);
+
+                // Adjusting node width and height dynamically to fit text
+                node.append('rect')
+                    .attr('width', d => d.data.name.length * 10) // Dynamically adjust width based on text length
+                    .attr('height', 40) // Fixed height for uniformity
+                    .style('fill', '#6c5ce7')  // Node background color
+                    .style('stroke', '#fff')   // White border for nodes
+                    .style('stroke-width', 2)
+                    .style('rx', 10)  // Adjusted corner radius
+                    .style('ry', 10)
+                    .on('mouseover', function() {
+                        d3.select(this).style('fill', '#a29bfe');
+                    })
+                    .on('mouseout', function() {
+                        d3.select(this).style('fill', '#6c5ce7');
+                    });
+
+                // Text inside the nodes
+                node.append('text')
+                    .attr('dy', 0)  // Align vertically centered
+                    .attr('dx', 90) // Center text in the node
+                    .style('font-size', '18px') // Increased font size
+                    .style('font-weight', 'bold') // Bold text
+                    .style('text-anchor', 'middle')
+                    .style('fill', '#000') // Black text for contrast
+                    .text(d => d.data.name)
+                    .on('click', function(event, d) {
+                        // Trigger LLM API request when text is clicked
+                        fetchExplanation(d.data.name);
+                    });
+            })
+            .catch(error => {
+                console.error("Error fetching mind map data:", error);
+            });
+
+            async function fetchExplanation(keyword) {
+                try {
+                    const response = await fetch('http://127.0.0.1:1234/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer lm-studio'
+                        },
+                        body: JSON.stringify({
+                            model: "qwen2.5-14b-instruct",
+                            messages: [
+                                { role: "system", content: "You are a helpful assistant that explains any topic in 30 words maximum." },
+                                { role: "user", content: `Explain the concept of ${keyword}.` }
+                            ],
+                            response_format: {
+                                type: "json_schema",
+                                json_schema: {
+                                    name: "short explanation",
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            explanation: { type: "string" },
+                                            "related topics": { type: "string" }
+                                        },
+                                        required: ["explanation"]
+                                    }
+                                }
+                            },
+                            temperature: 0.7,
+                            max_tokens: 50,
+                            stream: false
+                        })
+                    });
+            
+                    const data = await response.json();
+                    const explanation = data.choices[0]?.message?.content || "No explanation found.";
+            
+                    // Display explanation in the modal
+                    document.getElementById('modal-text').innerText = explanation;
+                    document.getElementById('modal').style.display = 'flex';  // Show the modal
+                } catch (error) {
+                    console.error("Error fetching explanation:", error);
+                    document.getElementById('modal-text').innerText = "Error loading explanation.";
+                    document.getElementById('modal').style.display = 'flex';  // Show the modal with error message
+                }
+            }
+            
+            document.addEventListener('DOMContentLoaded', function () {
+                // Ensure elements with selectable text have event listeners
+                document.querySelectorAll('.mind-map-node').forEach(node => {
+                    node.addEventListener('click', function () {
+                        const keyword = this.getAttribute('data-keyword');
+                        fetchExplanation(keyword);
+            
+                        // Optionally, you can adjust the popup position based on the node's position:
+                        const rect = this.getBoundingClientRect();
+                        const modal = document.getElementById('modal');
+                        modal.style.left = `${rect.left}px`;
+                        modal.style.top = `${rect.bottom + window.scrollY + 5}px`;
+                    });
+                });
+            
+                // Close the modal when clicking outside of it
+                window.addEventListener('click', function (e) {
+                    const modal = document.getElementById('modal');
+                    if (modal && !modal.contains(e.target) && !e.target.classList.contains('mind-map-node')) {
+                        modal.style.display = 'none';
+                    }
+                });
+            
+                // Close the modal when clicking outside of it
+        window.addEventListener('click', function (e) {
+            const modal = document.getElementById('modal');
+            if (modal && !modal.contains(e.target) && !e.target.classList.contains('mind-map-node')) {
+                modal.style.display = 'none';
+            }
+        });
+
+        // Close the modal when the close button is clicked
+        document.getElementById('close-btn').addEventListener('click', function () {
+            document.getElementById('modal').style.display = 'none';
+    });
+});
+    </script>
+</body>
+</html>
